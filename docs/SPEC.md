@@ -102,6 +102,7 @@ export const STORAGE_KEYS = {
   LLM_CONFIG: "jobhunter.llmConfig",       // APIキー・モデル設定
   SITE_MAP: "jobhunter.customSiteMap",     // ユーザー定義サイトマッピング
   RUN_LOG: "jobhunter.lastRunLog",         // 直近の自動入力実行結果（デバッグ・UI表示用）
+  PICKER_RESULT: "jobhunter.pickerResult", // 要素ピッカーの結果（chrome.storage.session、popup再起動時に読む一時データ。7.3節）
 };
 ```
 
@@ -175,22 +176,32 @@ export const DEFAULT_LLM_CONFIG = {
 ```
 ユーザーがオプション画面で「このサイト用のセレクタを追加」した内容を保存する（7.3節のUIで作成）。
 
-## 4. フォーム検出戦略（3層フォールバック）
+## 4. フォーム検出戦略（ATS/カスタム検出 + ヒューリスティック補完）
 
 `content_scripts/detectors/index.js` が以下の順でディスパッチする。
 
 ```js
 export async function detectFields(document, hostname) {
-  const atsResult = detectViaAtsAdapter(document, hostname);
-  if (atsResult.length) return { strategy: "ats", fields: atsResult };
+  const knownFields = [
+    ...detectViaAtsAdapter(document, hostname),
+    ...(await detectViaCustomSiteMap(document, hostname)),
+  ];
+  const strategy = knownFields.length ? (hasAtsAdapter(hostname) ? "ats" : "custom") : "heuristic";
 
-  const customResult = await detectViaCustomSiteMap(document, hostname);
-  if (customResult.length) return { strategy: "custom", fields: customResult };
+  // ATS/カスタムマッピングが拾えた要素は除外した上で、残りのフォーム要素に
+  // ヒューリスティック検出をかけて補完する。実際のATSフォームは「標準項目
+  // （氏名・メールなど、ATSアダプタがカバーする）」と「企業ごとのカスタム
+  // スクリーニング質問（就労資格、希望年収、オンコール可否など、ATSアダプタ
+  // ではカバーしきれない）」が混在するのが普通であり、ATS判定＝専用マップ
+  // のみという単純な二択にすると後者が一切入力されない（実機検証で判明）。
+  const alreadyMatchedElements = new Set(knownFields.map((f) => f.element));
+  const heuristicResult = detectViaHeuristic(document, { excludeElements: alreadyMatchedElements });
 
-  const heuristicResult = detectViaHeuristic(document);
-  return { strategy: "heuristic", fields: heuristicResult };
+  return { strategy, fields: [...knownFields, ...heuristicResult] };
 }
 ```
+
+`strategy` は popup のサマリ表示用のラベル（どの検出が主に効いたか）であり、実際には常に ATS/カスタム検出とヒューリスティック検出が両方実行され、結果は合算される。
 
 各検出関数は共通の `FieldMatch` 形式を返す。
 
@@ -232,7 +243,7 @@ export const ATS_ADAPTERS = {
 };
 ```
 
-> 実装時の注意: ATSベンダーはA/Bテストや画面リニューアルでDOM構造を変更することがある。アダプタは「セレクタが見つからなければ静かにスキップし、heuristicにフォールバック」はしない（ATS判定されたら専用マップのみを使い、見つからない項目は「未入力」として報告する）。これにより誤爆（違う項目に値を入れる）を防ぐ。
+> 実装時の注意: ATSベンダーはA/Bテストや画面リニューアルでDOM構造を変更することがある。セレクタが見つからない項目はそのまま未入力になるが、上記の通りヒューリスティック検出がフォーム全体を補完的に走査するため、「ATSアダプタが知らない項目（企業独自のカスタム質問など）」であっても heuristic 側のキーワード辞書・autocomplete属性等で拾える限りは入力される。ATSアダプタ自身が持つセレクタについては、既にマッチした要素を heuristic の走査対象から除外することで、同じ要素に異なる値が二重に書き込まれる（誤爆）のを防ぐ。
 
 ### 4.2 カスタムサイトマッピング（`custom-site-map.js`）
 
@@ -250,6 +261,8 @@ ATS判定もカスタムマッピングも無い場合のフォールバック�
 自由記述の設問（`isFreeTextEssay: true`）の判定は、`<textarea>` または `contenteditable` 要素で、かつ上記のどのプロフィールフィールドにもマッチしなかった場合に true とする。これが「AIで作成」ボタンの表示対象になる。
 
 キーワード辞書は `heuristic.js` 内に日英対応で保持する（対象ユーザーが日本語・英語のATS両方を使う前提）。
+
+**radio/checkboxの扱い**: `<input type="radio" name="...">` は同じ `name` を持つ複数要素で1つの論理的な質問を構成するため、同一グループの2つ目以降の要素は走査から除外し、グループの最初の要素だけを代表として `FieldMatch` にする（`element` はこの代表要素）。マッチングには個々の選択肢自身のラベル（"Yes"/"No" など）ではなく、`<fieldset><legend>` または直前の見出し・段落テキストから取得した「質問文」を使う（選択肢のラベルで判定すると、どのradioグループも "Yes"/"No" 自体をキーワードと誤認してしまうため）。checkbox（単体のYes/No事実を表す、グループを組まないもの）は通常の `<label>` 紐付けでマッチングする。
 
 ```js
 const FIELD_KEYWORDS = {
@@ -344,16 +357,30 @@ function injectAiAssistButton(fieldMatch) {
 
 ```js
 async function handleAiAssistClick(fieldMatch, button) {
+  const question = extractQuestionText(fieldMatch.element);
+
+  // essayAnswers キャッシュ（3.2節, common/essay-cache.js）: 完全一致する
+  // 設問文が過去にあれば、API を呼ばずに即座にその回答を再利用する。
+  const cached = lookupEssayAnswer(profile.essayAnswers, question);
+  if (cached) {
+    fillField(fieldMatch, cached.answer);
+    return;
+  }
+
   button.disabled = true;
   button.textContent = "生成中…";
   try {
     const context = {
-      question: extractQuestionText(fieldMatch.element),
+      question,
       jobDescription: getCachedJobDescription(),
       profile: await getStorage(STORAGE_KEYS.PROFILE),
     };
     const answer = await requestAiAnswer(context); // background へメッセージ送信
     fillField(fieldMatch, answer);
+
+    // 生成した回答をキャッシュに保存し、プロフィールごと storage.local に書き戻す。
+    profile = { ...profile, essayAnswers: upsertEssayAnswer(profile.essayAnswers, question, answer) };
+    setStorage(STORAGE_KEYS.PROFILE, profile);
   } catch (err) {
     showInlineError(button, err);
   } finally {
@@ -362,6 +389,8 @@ async function handleAiAssistClick(fieldMatch, button) {
   }
 }
 ```
+
+`hashQuestion`（`common/essay-cache.js`）は設問文を正規化（trim・小文字化・空白圧縮）した上で軽量な非暗号学的ハッシュ（FNV-1a）をキーにする。完全一致のみを対象とするため、表記ゆれ（句読点の違いなど）がある場合は別エントリとしてキャッシュされる（類似度マッチは将来拡張、3.2節）。
 
 ### 6.3 background側のLLM呼び出し（`common/llm/anthropic-client.js`)
 
@@ -443,6 +472,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 │  ✓ 8件入力 / ⚠ 2件要確認        │
 │  (Workday として検出)           │
 │                                 │
+│ [入力欄を選択してサイトに登録]  │  ← 要素ピッカーを起動（7.3節）
+│                                 │
 │ プロフィール: 設定済み ✓        │
 │ LLM連携: 有効 ✓ (または 未設定) │
 │                                 │
@@ -451,6 +482,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 ```
 
 ロジック: `chrome.tabs.query({ active: true, currentWindow: true })` で現在タブを取得し、`chrome.tabs.sendMessage(tabId, { type: "RUN_AUTOFILL" })` を送信。content script 側はこのメッセージを受けて 4〜5章の処理を実行する。
+
+「入力欄を選択してサイトに登録」は同じ `activeTab` の仕組みを使い、`element-picker.js` を現在のタブに注入する（7.3節）。popup は Chrome の仕様上、ユーザーがページ本体をクリックした瞬間に自動で閉じてしまうため、ピッカーの結果を直接 popup に push することはできない。そのため結果は `chrome.storage.session`（`STORAGE_KEYS.PICKER_RESULT`）に一時保存し、ユーザーが拡張アイコンを再クリックして popup を開き直したときに、保存済みの結果から「プロフィール項目の割り当てフォーム」を表示する。
 
 ### 7.2 Options — プロフィール編集
 
@@ -461,12 +494,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 3. **スキル・自由記述タブ**: `skills[]`（タグ入力）、`coverLetterTemplate`。
 4. **保存/読込**: JSON形式でのエクスポート・インポートボタン（他PCへの移行、バックアップ用途。storage.localはプロファイル同期されないため重要）。
 
-### 7.3 Options — サイトマッピング管理
+### 7.3 サイトマッピング管理（要素ピッカーは popup から起動）
 
-ヒューリスティック検出で精度が低かったサイトについて、ユーザーが手動でセレクタとプロフィール項目を紐付けられる簡易UI。
+ヒューリスティック検出で精度が低かったサイトについて、ユーザーが手動でセレクタとプロフィール項目を紐付けられる機能。
 
-- 「現在開いているタブからフィールドを選択」方式: options ページから対象タブに一時的な「要素ピッカー」content scriptを注入し、ユーザーがクリックした要素のセレクタを自動生成（`id` > `name` > `data-*属性` > 構造的セレクタの優先順位で生成）。
-- 選択した要素に対し、プロフィール項目をドロップダウンで割り当てて保存 → `STORAGE_KEYS.SITE_MAP` に追記。
+- **起動元は options ページではなく popup**: `activeTab` 権限は「ユーザーが拡張のツールバーアイコン／popupを操作した、まさにそのタブ」にのみ一時的に付与される。options は別タブとして開かれるため、options から任意の別タブ（対象の求人ページ）に `chrome.scripting.executeScript` で注入することはできない（`tabs` 権限のような恒常的な全タブ読み取り権限が必要になってしまい、8章の最小権限方針に反する）。そのため、ユーザーは対象の求人ページ自体で popup を開き、「入力欄を選択してサイトに登録」ボタンを押して要素ピッカーを起動する。
+- 「要素ピッカー」content script（`element-picker.js`）を対象タブに注入し、ユーザーがクリックした要素のセレクタを自動生成（`id` > `name` > `data-*属性` > 構造的セレクタの優先順位で生成。3.4節の `generateSelector`）。
+- **popupが結果を受け取れない問題**: Chrome の popup はユーザーがページ本体をクリックした瞬間に自動で閉じる仕様のため、「ピッカーを起動した popup がそのままクリック結果を受け取って待機する」ことはできない。そこで、ピッカーはクリックされた要素の情報（セレクタ・`fieldKind`・`hostname`）を `chrome.storage.session`（`STORAGE_KEYS.PICKER_RESULT`）に保存するだけに留める。ユーザーが拡張アイコンを**再クリックして popup を開き直す**と、popup は起動時にこの一時結果を読み、見つかればプロフィール項目の割り当てフォームを表示する。割り当てて保存すると `STORAGE_KEYS.SITE_MAP` に追記され、`STORAGE_KEYS.PICKER_RESULT` はクリアされる（7.1節のpopup機能の一部として実装）。
+- 登録済みサイトの一覧・削除は options ページの「サイトマッピング」タブで行う（読み書きは同じ `STORAGE_KEYS.SITE_MAP` を参照するので一覧は常に最新）。
 
 > v1では最小実装として、この要素ピッカーUIは「あれば望ましい」機能とし、無い場合はJSONを直接編集するテキストエリアでの代替も許容する（実装コスト対効果で判断）。
 
@@ -481,7 +516,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 ブラウザのセキュリティ制約上、JavaScriptから `<input type="file">` に任意のファイルをプログラム的にセットすることはできない（ユーザー操作によるファイル選択が必須）。そのため本拡張では:
 
-- プロフィールに「レジュメファイル名」などの参照メモ（`resumeFileRef`）のみを保持し、自動入力時はファイル欄を黄色くハイライトして「このファイルを選択してください: resume_2024.pdf」とガイダンスを出す。
+- プロフィールに「レジュメファイル名」などの参照メモ（`resumeFileRef`、文字列）のみを保持し、自動入力時はファイル欄を黄色くハイライトして「このファイルを選択してください: resume_2024.pdf」とガイダンスを出す。options の「スキル・自由記述」タブでファイル名を入力・保存する。
+- ファイル欄の検出: `detectors/heuristic.js` は `<input type="file">` を見つけたら、name/label属性に関わらず常に `profilePath: "resumeFileRef"` として扱う（求人応募フォームのファイル欄はレジュメ/CVアップロードである場合が圧倒的に多いため）。
+- 実行結果の集計: file欄は `fillField` が値を書き込まない（`didFill: false`）ため、`filledCount` には含めない。`resumeFileRef` が設定されている file 欄が見つかった回数を別途 `needsManualFileUploadCount` として数え、popup・トーストの両方で「レジュメは手動でアップロードしてください（N件）」と常に表示する（5.2節）。
 - ファイルの中身自体を拡張が保持・送信することはない（LLMにもレジュメ全文は送らず、プロフィールの構造化データのみを渡す。6.3節）。
 
 ## 8. manifest.json 差分（GUIDE.mdのテンプレートからの変更点）
@@ -492,12 +529,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   "name": "JobHunter",
   "description": "求人応募フォームへの自動入力とAI入力支援",
   "permissions": ["storage", "activeTab", "scripting"],
-  "host_permissions": [
-    "https://*.myworkdayjobs.com/*",
-    "https://boards.greenhouse.io/*",
-    "https://jobs.lever.co/*",
-    "https://*.icims.com/*"
-  ],
   "action": {
     "default_popup": "popup.html",
     "default_title": "JobHunter: このページに自動入力"
@@ -515,7 +546,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 テンプレートからの変更点まとめ:
 - `chrome_url_overrides`（newtab）、`omnibox`、`commands` は本拡張の要件に無いため削除。
 - `content_scripts` の静的宣言は**使わず**、`activeTab` + `scripting.executeScript` によるオンデマンド注入に変更する（popup の「自動入力」ボタン押下時にだけ対象タブにスクリプトを注入する設計。4大ATS以外の汎用フォームにも対応するため、全URLに対して常時content scriptを走らせるのではなく、ユーザーが明示的に起動した時だけ動かすことで無駄なDOM走査・パフォーマンス影響を避ける）。
-- `host_permissions` は既知ATSドメインに限定して宣言し、汎用ヒューリスティック検出のためにそれ以外のサイトで動かす場合は `activeTab` 権限（ユーザーがアクションを起動したタブに対してのみ一時的に許可される権限）で対応する。これにより、インストール時に要求する権限を最小化できる（Chrome Web Store審査・ユーザーの信頼性の観点で重要）。
+- `host_permissions` は**宣言しない**。自動入力は常に「ユーザーがツールバーアイコン／popupをクリックした、まさにそのタブ」に対してのみ実行され、`activeTab` 権限がそのタブに一時的なアクセスを自動付与するため、ATSドメインかどうかに関わらずこれだけで十分動作する（4.1節のATSアダプタも、4.3節の汎用ヒューリスティック検出も、同じ注入経路を通る）。`host_permissions` を追加しても動作は変わらないが、インストール時にユーザーへ提示される権限一覧が広がるだけなので加えない（Chrome Web Store審査・ユーザーの信頼性の観点で有利）。
 - `permissions` に `scripting` を追加（`chrome.scripting.executeScript` 用）。
 
 ## 9. 共通コンポーネントの再利用・拡張（GUIDE.mdとの対応）
@@ -548,4 +579,4 @@ E2E（実際のATSサイトでの動作確認）は自動化が難しいため�
 - **ATS DOM変更への追従**: ベンダー側のUI変更でセレクタが失効するリスクが常にある。アダプタのセレクタは定期的なメンテナンスが必要（4.1節）。
 - **誤情報生成（ハルシネーション）**: LLM生成文はプロフィールに基づく指示を入れても完全には防げない。ユーザーに生成結果を必ず目視確認する前提のUI（生成後も通常の編集可能なテキストフィールドのまま）とする。
 - **APIコスト**: ユーザー自身のAPIキーを使うため拡張側の運営コストは無いが、誤って多数のフィールドでボタンを連打すると想定外の課金が発生し得る。popup上にAPI使用量の目安（トークン数ベースの概算）を表示する機能は将来拡張とする。
-- **Chrome Web Store審査**: `host_permissions` でATSドメインを指定し、`activeTab` で汎用サイトに対応する設計のため、広範な`<all_urls>`権限は要求しない方針（審査通過率・ユーザー信頼性の観点で有利）。
+- **Chrome Web Store審査**: `host_permissions` を宣言せず `activeTab` のみで全サイトに対応する設計のため、広範な`<all_urls>`権限はインストール時に要求しない方針（審査通過率・ユーザー信頼性の観点で有利）。

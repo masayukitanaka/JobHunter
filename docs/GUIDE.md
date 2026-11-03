@@ -167,6 +167,10 @@ npm run test:ci      # カバレッジ付き・CI向け（jest-junit レポー�
 4. UIを変更しながら確認する場合は `npm run build`（watch）を使い、変更後に拡張ページ（popup/options/newtab）をリロードする。background/content_scripts を変更した場合は `chrome://extensions` でその拡張を再読み込みする必要がある。
 
 > **本テンプレートの既知の修正点（このプロジェクトで対応済み）**: 元テンプレートの `package.json` は `node-sass` を使用しており、Node.js の新しいバージョン（v18以降、特にv20/v24）ではネイティブビルドが失敗する。このリポジトリでは `node-sass` → `sass`（Dart Sass）に置き換え、また `@babel/plugin-transform-runtime` が要求する `@babel/runtime` を `dependencies` に追加済み。新しく clone したテンプレートをそのまま使う場合は同様の対応が必要になる可能性がある。
+>
+> `@babel/runtime` を追加する際は `@babel/plugin-transform-runtime`/`@babel/preset-env` と同じメジャーバージョン（7系）を明示的に指定すること（`npm install @babel/runtime@^7` のように）。バージョン指定なしで `npm install @babel/runtime --save` すると、npm が最新の `8.x` を解決してしまい、`async`/`await` を使うコードが `Module not found: "./regenerator" is not exported` でビルド失敗する（`@babel/runtime@8` のexportsフィールドが7系プラグインの想定と異なるため）。
+>
+> **Jestのテスト環境について**: Jest 27（本テンプレートが使用）はデフォルトの `testEnvironment` が `"node"`。DOM（`document`/`window`）を使うテスト（popup/options/content_scripts配下など）を書く場合は `package.json` の `"jest"` 設定に `"testEnvironment": "jsdom"` を明示する必要がある（Jest 26以前はjsdomがデフォルトだったため、バージョンの思い込みで省略すると `ReferenceError: document is not defined` になる）。
 
 ## 7. CI/CD（README記載だが本リポジトリには未配置）
 

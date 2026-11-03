@@ -9,7 +9,209 @@
     </head>
     <body>
         <main>
-            JobHunter options (profile / LLM settings, to be implemented — see docs/SPEC.md)
+            <h1>JobHunter 設定</h1>
+
+            <nav class="tabs" role="tablist">
+                <button type="button" class="tab-button" data-tab="personal" aria-selected="true">基本情報</button>
+                <button type="button" class="tab-button" data-tab="experience" aria-selected="false">経歴・学歴</button>
+                <button type="button" class="tab-button" data-tab="skills" aria-selected="false">スキル・自由記述</button>
+                <button type="button" class="tab-button" data-tab="data" aria-selected="false">データ管理</button>
+                <button type="button" class="tab-button" data-tab="llm" aria-selected="false">AI設定</button>
+                <button type="button" class="tab-button" data-tab="sitemap" aria-selected="false">サイトマッピング</button>
+            </nav>
+
+            <section id="tab-personal" class="tab-panel" data-tab-panel="personal">
+                <h2>基本情報</h2>
+                <form id="personalForm">
+                    <label>
+                        名 (First name)
+                        <input type="text" id="personal.firstName" name="personal.firstName" />
+                    </label>
+                    <label>
+                        姓 (Last name)
+                        <input type="text" id="personal.lastName" name="personal.lastName" />
+                    </label>
+                    <label>
+                        メールアドレス
+                        <input type="email" id="personal.email" name="personal.email" />
+                    </label>
+                    <label>
+                        電話番号
+                        <input type="tel" id="personal.phone" name="personal.phone" />
+                    </label>
+                    <label>
+                        住所1行目
+                        <input type="text" id="personal.addressLine1" name="personal.addressLine1" />
+                    </label>
+                    <label>
+                        市区町村
+                        <input type="text" id="personal.city" name="personal.city" />
+                    </label>
+                    <label>
+                        都道府県・州
+                        <input type="text" id="personal.region" name="personal.region" />
+                    </label>
+                    <label>
+                        郵便番号
+                        <input type="text" id="personal.postalCode" name="personal.postalCode" />
+                    </label>
+                    <label>
+                        国
+                        <input type="text" id="personal.country" name="personal.country" />
+                    </label>
+                    <label>
+                        現在地（自由記述。例: Tokyo, Japan）
+                        <input type="text" id="personal.currentLocation" name="personal.currentLocation" />
+                    </label>
+                    <label>
+                        LinkedIn URL
+                        <input type="url" id="personal.linkedinUrl" name="personal.linkedinUrl" />
+                    </label>
+                    <label>
+                        ポートフォリオ URL
+                        <input type="url" id="personal.portfolioUrl" name="personal.portfolioUrl" />
+                    </label>
+                    <label>
+                        GitHub URL
+                        <input type="url" id="personal.githubUrl" name="personal.githubUrl" />
+                    </label>
+
+                    <fieldset>
+                        <legend>就労資格</legend>
+                        <label>
+                            就労資格あり
+                            <select id="workAuthorization.isAuthorizedToWork" name="workAuthorization.isAuthorizedToWork">
+                                <option value="">未設定</option>
+                                <option value="true">はい</option>
+                                <option value="false">いいえ</option>
+                            </select>
+                        </label>
+                        <label>
+                            スポンサーシップが必要
+                            <select id="workAuthorization.requiresSponsorship" name="workAuthorization.requiresSponsorship">
+                                <option value="">未設定</option>
+                                <option value="true">はい</option>
+                                <option value="false">いいえ</option>
+                            </select>
+                        </label>
+                        <label>
+                            ビザ/在留資格（自由記述。例: H-1B, 永住権, 日本国籍）
+                            <input type="text" id="workAuthorization.visaStatus" name="workAuthorization.visaStatus" />
+                        </label>
+                    </fieldset>
+
+                    <fieldset>
+                        <legend>希望条件</legend>
+                        <label>
+                            希望年収・報酬（自由記述）
+                            <input type="text" id="preferences.desiredCompensation" name="preferences.desiredCompensation" />
+                        </label>
+                    </fieldset>
+
+                    <button type="button" id="savePersonal" class="btn-primary">保存</button>
+                    <span class="save-status" id="personalSaveStatus" role="status"></span>
+                </form>
+                <ul class="validation-warnings" id="personalWarnings"></ul>
+            </section>
+
+            <section id="tab-experience" class="tab-panel" data-tab-panel="experience" hidden>
+                <h2>経歴</h2>
+                <div id="experienceList"></div>
+                <button type="button" id="addExperience">+ 経歴を追加</button>
+
+                <h2>学歴</h2>
+                <div id="educationList"></div>
+                <button type="button" id="addEducation">+ 学歴を追加</button>
+
+                <br/>
+                <button type="button" id="saveExperienceEducation" class="btn-primary">保存</button>
+                <span class="save-status" id="experienceSaveStatus" role="status"></span>
+            </section>
+
+            <section id="tab-skills" class="tab-panel" data-tab-panel="skills" hidden>
+                <h2>スキル</h2>
+                <label>
+                    スキル（カンマ区切り）
+                    <input type="text" id="skillsInput" placeholder="例: JavaScript, React, SQL" />
+                </label>
+
+                <h2>自由記述のデフォルト文面</h2>
+                <label>
+                    カバーレター テンプレート
+                    <textarea id="coverLetterTemplate" rows="8"></textarea>
+                </label>
+
+                <h2>レジュメファイル</h2>
+                <p>
+                    ブラウザの仕様上、拡張がファイルを自動で選択することはできません。ここにファイル名を登録しておくと、
+                    自動入力実行時にアップロード欄が黄色くハイライトされ「このファイルを選択してください」と案内が出ます。
+                </p>
+                <label>
+                    レジュメファイル名（例: resume_2024.pdf）
+                    <input type="text" id="resumeFileRef" placeholder="例: resume_2024.pdf" />
+                </label>
+
+                <button type="button" id="saveSkills" class="btn-primary">保存</button>
+                <span class="save-status" id="skillsSaveStatus" role="status"></span>
+            </section>
+
+            <section id="tab-data" class="tab-panel" data-tab-panel="data" hidden>
+                <h2>データのエクスポート・インポート</h2>
+                <p>プロフィールデータをJSON形式でバックアップ・移行できます。</p>
+                <button type="button" id="exportProfile">プロフィールをエクスポート</button>
+                <br/><br/>
+                <label>
+                    JSONファイルを選択してインポート
+                    <input type="file" id="importProfileFile" accept="application/json" />
+                </label>
+                <span class="save-status" id="dataStatus" role="status"></span>
+            </section>
+
+            <section id="tab-llm" class="tab-panel" data-tab-panel="llm" hidden>
+                <h2>AI入力支援（任意）</h2>
+                <p>
+                    Anthropic（Claude）のAPIキーを設定すると、求人の自由記述欄に「✨ AIで作成」ボタンが表示され、
+                    Job Descriptionと設問内容をもとに回答文を生成できます。未設定の場合、この機能は無効化されたままです。
+                </p>
+                <label>
+                    <input type="checkbox" id="llm.enabled" />
+                    AI入力支援を有効にする
+                </label>
+                <label>
+                    APIキー
+                    <span class="input-with-toggle">
+                        <input type="password" id="llm.apiKey" autocomplete="off" />
+                        <button type="button" id="toggleApiKeyVisibility">表示</button>
+                    </span>
+                </label>
+                <label>
+                    モデル
+                    <select id="llm.model">
+                        <option value="claude-sonnet-5">claude-sonnet-5</option>
+                        <option value="claude-opus-5">claude-opus-5</option>
+                        <option value="claude-haiku-4-5-20251001">claude-haiku-4-5-20251001</option>
+                    </select>
+                </label>
+
+                <button type="button" id="saveLlmConfig" class="btn-primary">保存</button>
+                <button type="button" id="testLlmConnection">接続テスト</button>
+                <span class="save-status" id="llmSaveStatus" role="status"></span>
+            </section>
+
+            <section id="tab-sitemap" class="tab-panel" data-tab-panel="sitemap" hidden>
+                <h2>サイトマッピング</h2>
+                <p>
+                    汎用の自動検出で入力欄がうまく認識されないサイトでは、入力欄を手動で登録できます。
+                    登録すると、そのサイトでは次回以降この設定が自動入力に使われます。
+                </p>
+                <p>
+                    登録するには、対象の求人応募ページを開いた状態で拡張アイコン（popup）の
+                    「入力欄を選択してサイトに登録」ボタンを使ってください。
+                </p>
+
+                <h3>登録済みサイト一覧</h3>
+                <div id="siteMapList"></div>
+            </section>
         </main>
     </body>
 </html>

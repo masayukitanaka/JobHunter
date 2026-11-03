@@ -8,3 +8,128 @@ body {
         size: 16px;
     }
 }
+
+main {
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 24px;
+}
+
+.tabs {
+    display: flex;
+    gap: 8px;
+    border-bottom: 1px solid #ddd;
+    margin-bottom: 16px;
+}
+
+.tab-button {
+    padding: 8px 16px;
+    border: none;
+    background: none;
+    cursor: pointer;
+    font-size: 15px;
+    color: $dark-gray;
+    border-bottom: 2px solid transparent;
+
+    &[aria-selected="true"] {
+        border-bottom-color: $dark-gray;
+        font-weight: bold;
+    }
+}
+
+.tab-panel label {
+    display: block;
+    margin-bottom: 12px;
+}
+
+.tab-panel input,
+.tab-panel select,
+.tab-panel textarea {
+    display: block;
+    width: 100%;
+    max-width: 400px;
+    margin-top: 4px;
+    padding: 6px 8px;
+    box-sizing: border-box;
+}
+
+.repeatable-row {
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    padding: 12px;
+    margin-bottom: 12px;
+    background: #fff;
+}
+
+.save-status {
+    margin-left: 8px;
+    font-size: 14px;
+}
+
+.validation-warnings {
+    color: #b00020;
+    font-size: 14px;
+}
+
+.btn-primary {
+    padding: 8px 16px;
+    cursor: pointer;
+}
+
+.tab-panel input[type="checkbox"] {
+    display: inline-block;
+    width: auto;
+    margin-right: 6px;
+}
+
+.input-with-toggle {
+    display: flex;
+    gap: 8px;
+    max-width: 400px;
+
+    input {
+        flex: 1;
+        margin-top: 4px;
+    }
+
+    button {
+        align-self: flex-start;
+        margin-top: 4px;
+        white-space: nowrap;
+    }
+}
+
+#pickerResultForm {
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    padding: 12px;
+    margin: 12px 0;
+    background: #fff;
+}
+
+.site-map-entry {
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    padding: 12px;
+    margin-bottom: 12px;
+    background: #fff;
+
+    h4 {
+        margin: 0 0 8px;
+    }
+
+    ul {
+        margin: 0;
+        padding-left: 0;
+        list-style: none;
+    }
+
+    li {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 4px 0;
+        font-size: 14px;
+        font-family: monospace;
+    }
+}

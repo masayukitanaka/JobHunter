@@ -7,5 +7,31 @@
         <script src="popup.js" type="text/javascript"></script>
         <link href="popup.css" rel="stylesheet" />
     </head>
-    <body>JobHunter popup (to be implemented, see docs/SPEC.md)</body>
+    <body>
+        <h1>JobHunter</h1>
+        <button type="button" id="runAutofill" class="btn-primary">このページに自動入力</button>
+        <p id="runStatus" role="status"></p>
+
+        <div id="lastRunSummary"></div>
+
+        <hr/>
+
+        <div id="pickerPrompt">
+            <button type="button" id="startElementPicker">入力欄を選択してサイトに登録</button>
+            <p id="pickerStatus" role="status"></p>
+        </div>
+
+        <div id="pickerResultForm" hidden>
+            <p>選択した要素: <code id="pickedSelector"></code></p>
+            <label>
+                紐付けるプロフィール項目
+                <select id="pickedProfilePath"></select>
+            </label>
+            <button type="button" id="confirmPickedField" class="btn-primary">このサイトに登録</button>
+            <button type="button" id="cancelPickedField">キャンセル</button>
+        </div>
+
+        <hr/>
+        <button type="button" id="openOptions">プロフィールを編集</button>
+    </body>
 </html>

@@ -5,6 +5,60 @@ body {
     color: $dark-gray;
     font: {
         family: $font-family;
-        size: 16px;
+        size: 14px;
+    }
+    width: 280px;
+    padding: 16px;
+    box-sizing: border-box;
+}
+
+h1 {
+    font-size: 16px;
+    margin: 0 0 12px;
+}
+
+.btn-primary {
+    width: 100%;
+    padding: 8px;
+    cursor: pointer;
+}
+
+#runStatus {
+    font-size: 13px;
+    min-height: 1em;
+}
+
+#lastRunSummary p {
+    margin: 4px 0;
+    font-size: 13px;
+}
+
+#startElementPicker,
+#confirmPickedField,
+#cancelPickedField,
+#openOptions {
+    width: 100%;
+    padding: 8px;
+    cursor: pointer;
+    margin-bottom: 4px;
+}
+
+#pickerStatus {
+    font-size: 12px;
+    min-height: 1em;
+}
+
+#pickerResultForm {
+    font-size: 13px;
+
+    code {
+        display: block;
+        word-break: break-all;
+        margin: 4px 0;
+    }
+
+    select {
+        width: 100%;
+        margin: 4px 0 8px;
     }
 }
